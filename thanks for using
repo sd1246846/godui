@@ -231,37 +231,4 @@ function Library:CreateWindow(titleText)
     return Window
 end
 
---- USAGE EXAMPLE ---
-local Config = {Enabled = false, Walkspeed = 16}
-local Window = Library:CreateWindow("Player Mods")
-local MainTab = Window:AddTab("Main")
 
-MainTab:AddToggle({
-    text = "Enable Speed",
-    callback = function(v)
-        Config.Enabled = v
-        if not v then
-            game.Players.LocalPlayer.Character.Humanoid.WalkSpeed = 16
-        end
-    end
-})
-
-MainTab:AddSlider({
-    text = "Walkspeed Amount",
-    min = 16,
-    max = 200,
-    value = 16,
-    callback = function(v)
-        Config.Walkspeed = v
-        if Config.Enabled then
-            game.Players.LocalPlayer.Character.Humanoid.WalkSpeed = v
-        end
-    end
-})
-
-MainTab:AddButton({
-    text = "Reset Character",
-    callback = function()
-        game.Players.LocalPlayer.Character:BreakJoints()
-    end
-})
