@@ -439,7 +439,8 @@ function Library:CreateWindow(title)
 	return self
 end
 
-function Window:CreateTab(name, icon)
+-- Standalone component functions (must be defined before CreateTab)
+local function addToggle(tab, options)
 	local tab = {}
 	tab.name = name
 	tab.elements = {}
@@ -610,75 +611,6 @@ function Window:CreateTab(name, icon)
 	end
 	
 	return tab
-end
-
--- Method to programmatically select a tab by name
-function Window:SetTab(tabName)
-	for _, tab in pairs(self.tabs) do
-		if tab.name == tabName then
-			tab.Select()
-			return true
-		end
-	end
-	warn("Tab not found: " .. tabName)
-	return false
-end
-
--- Window wrapper methods that use currentTab (for backwards compatibility)
-function Window:AddToggle(options)
-	if not self.currentTab then
-		self:CreateTab("Main", "home")
-	end
-	return addToggle(self.currentTab, options)
-end
-
-function Window:AddSlider(options)
-	if not self.currentTab then
-		self:CreateTab("Main", "home")
-	end
-	return addSlider(self.currentTab, options)
-end
-
-function Window:AddDropdown(options)
-	if not self.currentTab then
-		self:CreateTab("Main", "home")
-	end
-	return addDropdown(self.currentTab, options)
-end
-
-function Window:AddButton(options)
-	if not self.currentTab then
-		self:CreateTab("Main", "home")
-	end
-	return addButton(self.currentTab, options)
-end
-
-function Window:AddLabel(text)
-	if not self.currentTab then
-		self:CreateTab("Main", "home")
-	end
-	return addLabel(self.currentTab, text)
-end
-
-function Window:AddTextbox(options)
-	if not self.currentTab then
-		self:CreateTab("Main", "home")
-	end
-	return addTextbox(self.currentTab, options)
-end
-
-function Window:AddColorPicker(options)
-	if not self.currentTab then
-		self:CreateTab("Main", "home")
-	end
-	return addColorPicker(self.currentTab, options)
-end
-
-function Window:AddKeybind(options)
-	if not self.currentTab then
-		self:CreateTab("Main", "home")
-	end
-	return addKeybind(self.currentTab, options)
 end
 
 -- Standalone component functions
@@ -1209,6 +1141,249 @@ local function addKeybind(tab, options)
 			end
 		end
 	end)
+end
+
+-- CreateTab function (after all standalone functions are defined)
+function Window:CreateTab(name, icon)
+	local tab = {}
+	tab.name = name
+	tab.elements = {}
+	tab.window = self
+	
+	-- Create tab button
+	local tabButton = Instance.new("TextButton")
+	tabButton.Size = UDim2.new(0, 38, 0, 38)
+	tabButton.BackgroundColor3 = Color3.fromRGB(47, 47, 47)
+	tabButton.BorderSizePixel = 0
+	tabButton.Text = ""
+	tabButton.Parent = Converted["_tabsframe"]
+	
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(0, 5)
+	corner.Parent = tabButton
+	
+	-- Add icon or text
+	if icon then
+		local iconAsset = GetIcon(icon, "Lucide")
+		
+		if iconAsset then
+			local iconImage = Instance.new("ImageLabel")
+			iconImage.Size = UDim2.new(0, 24, 0, 24)
+			iconImage.Position = UDim2.new(0.5, 0, 0.5, 0)
+			iconImage.AnchorPoint = Vector2.new(0.5, 0.5)
+			iconImage.BackgroundTransparency = 1
+			iconImage.ImageColor3 = Color3.fromRGB(255, 255, 255)
+			
+			-- Handle Lucide icon asset table
+			if type(iconAsset) == "table" then
+				iconImage.Image = "rbxassetid://" .. iconAsset.id
+				iconImage.ImageRectSize = iconAsset.imageRectSize
+				iconImage.ImageRectOffset = iconAsset.imageRectOffset
+			else
+				-- Handle string asset ID
+				iconImage.Image = iconAsset
+			end
+			
+			iconImage.Parent = tabButton
+		else
+			-- Fallback to text if icon fails or not found
+			local label = Instance.new("TextLabel")
+			label.Size = UDim2.new(1, 0, 1, 0)
+			label.BackgroundTransparency = 1
+			label.Text = string.sub(name, 1, 2):upper()
+			label.TextColor3 = Color3.fromRGB(255, 255, 255)
+			label.TextSize = 16
+			label.Font = Enum.Font.FredokaOne
+			label.Parent = tabButton
+		end
+	else
+		-- No icon specified, use text
+		local label = Instance.new("TextLabel")
+		label.Size = UDim2.new(1, 0, 1, 0)
+		label.BackgroundTransparency = 1
+		label.Text = string.sub(name, 1, 2):upper()
+		label.TextColor3 = Color3.fromRGB(255, 255, 255)
+		label.TextSize = 16
+		label.Font = Enum.Font.FredokaOne
+		label.Parent = tabButton
+	end
+	
+	-- Create content frame for this tab (inside the main scrolling frame)
+	local contentFrame = Instance.new("Frame")
+	contentFrame.Size = UDim2.new(1, 0, 0, 0) -- Height will be set by UIListLayout
+	contentFrame.BackgroundTransparency = 1
+	contentFrame.Visible = false
+	contentFrame.Name = "TabContent_" .. name
+	contentFrame.Parent = Converted["_frame"]
+	
+	local layout = Instance.new("UIListLayout")
+	layout.Padding = UDim.new(0, 8)
+	layout.SortOrder = Enum.SortOrder.LayoutOrder
+	layout.Parent = contentFrame
+	
+	-- Add padding to content frame
+	local padding = Instance.new("UIPadding")
+	padding.PaddingTop = UDim.new(0, 8)
+	padding.PaddingBottom = UDim.new(0, 8)
+	padding.PaddingLeft = UDim.new(0, 5)
+	padding.PaddingRight = UDim.new(0, 5)
+	padding.Parent = contentFrame
+	
+	-- Update size based on content
+	layout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+		contentFrame.Size = UDim2.new(1, 0, 0, layout.AbsoluteContentSize.Y + 16)
+		-- Update main frame canvas size
+		task.wait()
+		local totalHeight = 0
+		for _, child in ipairs(Converted["_frame"]:GetChildren()) do
+			if child:IsA("Frame") and child.Visible then
+				totalHeight = totalHeight + child.AbsoluteSize.Y
+			end
+		end
+		Converted["_frame"].CanvasSize = UDim2.new(0, 0, 0, totalHeight + 10)
+	end)
+	
+	tab.contentFrame = contentFrame
+	tab.button = tabButton
+	tab.layout = layout
+	
+	-- Tab switching logic
+	local function selectTab()
+		-- Hide all tabs
+		for _, t in pairs(allTabs) do
+			t.contentFrame.Visible = false
+			t.button.BackgroundColor3 = Color3.fromRGB(47, 47, 47)
+		end
+		
+		-- Show this tab
+		contentFrame.Visible = true
+		tabButton.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+		self.currentTab = tab
+		
+		-- Update canvas size
+		local totalHeight = 0
+		for _, child in ipairs(Converted["_frame"]:GetChildren()) do
+			if child:IsA("Frame") and child.Visible then
+				totalHeight = totalHeight + child.AbsoluteSize.Y
+			end
+		end
+		Converted["_frame"].CanvasSize = UDim2.new(0, 0, 0, totalHeight + 10)
+	end
+	
+	tabButton.MouseButton1Click:Connect(selectTab)
+	tab.Select = selectTab
+	
+	table.insert(allTabs, tab)
+	table.insert(self.tabs, tab)
+	
+	-- Auto-select first tab
+	if #allTabs == 1 then
+		selectTab()
+	end
+	
+	-- Add all the Add methods directly to the tab
+	tab.AddToggle = function(self, options)
+		return addToggle(tab, options)
+	end
+	
+	tab.AddSlider = function(self, options)
+		return addSlider(tab, options)
+	end
+	
+	tab.AddDropdown = function(self, options)
+		return addDropdown(tab, options)
+	end
+	
+	tab.AddButton = function(self, options)
+		return addButton(tab, options)
+	end
+	
+	tab.AddLabel = function(self, text)
+		return addLabel(tab, text)
+	end
+	
+	tab.AddTextbox = function(self, options)
+		return addTextbox(tab, options)
+	end
+	
+	tab.AddColorPicker = function(self, options)
+		return addColorPicker(tab, options)
+	end
+	
+	tab.AddKeybind = function(self, options)
+		return addKeybind(tab, options)
+	end
+	
+	return tab
+end
+
+-- Method to programmatically select a tab by name
+function Window:SetTab(tabName)
+	for _, tab in pairs(self.tabs) do
+		if tab.name == tabName then
+			tab.Select()
+			return true
+		end
+	end
+	warn("Tab not found: " .. tabName)
+	return false
+end
+
+-- Window wrapper methods that use currentTab (for backwards compatibility)
+function Window:AddToggle(options)
+	if not self.currentTab then
+		self:CreateTab("Main", "home")
+	end
+	return addToggle(self.currentTab, options)
+end
+
+function Window:AddSlider(options)
+	if not self.currentTab then
+		self:CreateTab("Main", "home")
+	end
+	return addSlider(self.currentTab, options)
+end
+
+function Window:AddDropdown(options)
+	if not self.currentTab then
+		self:CreateTab("Main", "home")
+	end
+	return addDropdown(self.currentTab, options)
+end
+
+function Window:AddButton(options)
+	if not self.currentTab then
+		self:CreateTab("Main", "home")
+	end
+	return addButton(self.currentTab, options)
+end
+
+function Window:AddLabel(text)
+	if not self.currentTab then
+		self:CreateTab("Main", "home")
+	end
+	return addLabel(self.currentTab, text)
+end
+
+function Window:AddTextbox(options)
+	if not self.currentTab then
+		self:CreateTab("Main", "home")
+	end
+	return addTextbox(self.currentTab, options)
+end
+
+function Window:AddColorPicker(options)
+	if not self.currentTab then
+		self:CreateTab("Main", "home")
+	end
+	return addColorPicker(self.currentTab, options)
+end
+
+function Window:AddKeybind(options)
+	if not self.currentTab then
+		self:CreateTab("Main", "home")
+	end
+	return addKeybind(self.currentTab, options)
 end
 
 return Library
