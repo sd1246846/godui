@@ -1,0 +1,1232 @@
+-- ============================================================
+-- GOD LIB  ·  Refined UI Library
+-- ============================================================
+-- Components: Toggle · Slider · Button · Dropdown
+--             Textbox · ColorPicker · Keybind · Label · Section
+-- Tabs: Lucide icons, Custom rbxassetid, or text fallback
+-- ============================================================
+
+local Library = {}
+Library.__index = Library
+
+local TweenService     = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
+local RunService       = game:GetService("RunService")
+local isStudio         = RunService:IsStudio()
+
+-- ============================================================
+-- ICON SYSTEM
+-- ============================================================
+local _lucideCache = nil
+
+local function GetIcon(icon, source)
+    source = source or "Lucide"
+    if source == "Custom" then
+        return { id = tonumber(tostring(icon)), raw = true }
+    elseif source == "Lucide" then
+        if isStudio then
+            return { id = 10723434557, imageRectSize = Vector2.new(48,48), imageRectOffset = Vector2.new(0,0) }
+        end
+        if not _lucideCache then
+            local ok, res = pcall(function()
+                local data = game:HttpGet("https://raw.githubusercontent.com/latte-soft/lucide-roblox/refs/heads/master/lib/Icons.luau")
+                return loadstring(data)()
+            end)
+            _lucideCache = ok and res or {}
+        end
+        local sized = _lucideCache["48px"]
+        if not sized then return nil end
+        local key = string.match(string.lower(icon), "^%s*(.-)%s*$")
+        local r   = sized[key]
+        if not r then return nil end
+        return { id = r[1], imageRectSize = Vector2.new(r[2][1], r[2][2]), imageRectOffset = Vector2.new(r[3][1], r[3][2]) }
+    end
+    return nil
+end
+
+local function ApplyIcon(img, asset)
+    if not asset then return end
+    img.Image = "rbxassetid://" .. tostring(asset.id)
+    if asset.raw or not asset.imageRectSize then
+        img.ImageRectSize = Vector2.new(0,0)
+        img.ImageRectOffset = Vector2.new(0,0)
+    else
+        img.ImageRectSize   = asset.imageRectSize
+        img.ImageRectOffset = asset.imageRectOffset
+    end
+end
+
+-- ============================================================
+-- DESIGN TOKENS
+-- ============================================================
+--  The window is 279×227px, content pane is 228×201px.
+--  Every component must be slim and purposeful.
+--
+--  Palette:
+--   Surface 0 (deepest)  #1E1E22
+--   Surface 1 (base)     #252529
+--   Surface 2 (raised)   #2D2D33
+--   Surface 3 (card)     #34343C
+--   Border               #3E3E48  (1px lines only)
+--   Accent               #7B9CFF  (blue-indigo)
+--   Accent dim           #3A4880
+--   Text primary         #F0F0F5
+--   Text secondary       #8888A0
+--   Text muted           #55556A
+--   Success              #5FD68A
+--   Danger               #FF6B6B
+-- ============================================================
+local T = {
+    s0        = Color3.fromRGB(30,  30,  34),
+    s1        = Color3.fromRGB(37,  37,  41),
+    s2        = Color3.fromRGB(45,  45,  51),
+    s3        = Color3.fromRGB(52,  52,  60),
+    border    = Color3.fromRGB(62,  62,  72),
+    accent    = Color3.fromRGB(123, 156, 255),
+    accentDim = Color3.fromRGB(58,  72,  128),
+    textPri   = Color3.fromRGB(240, 240, 245),
+    textSec   = Color3.fromRGB(136, 136, 160),
+    textMut   = Color3.fromRGB(85,  85,  106),
+    success   = Color3.fromRGB(95,  214, 138),
+    danger    = Color3.fromRGB(255, 107, 107),
+}
+
+-- ============================================================
+-- HELPERS
+-- ============================================================
+local function crn(p, r)
+    local c = Instance.new("UICorner")
+    c.CornerRadius = UDim.new(0, r or 4)
+    c.Parent = p
+    return c
+end
+
+local function pad(p, t, b, l, r)
+    local u = Instance.new("UIPadding")
+    u.PaddingTop    = UDim.new(0, t or 0)
+    u.PaddingBottom = UDim.new(0, b or 0)
+    u.PaddingLeft   = UDim.new(0, l or 0)
+    u.PaddingRight  = UDim.new(0, r or 0)
+    u.Parent = p
+    return u
+end
+
+local function list(p, gap)
+    local l = Instance.new("UIListLayout")
+    l.SortOrder = Enum.SortOrder.LayoutOrder
+    l.Padding = UDim.new(0, gap or 0)
+    l.Parent = p
+    return l
+end
+
+local function stroke(p, col, thick)
+    local s = Instance.new("UIStroke")
+    s.Color = col or T.border
+    s.Thickness = thick or 1
+    s.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+    s.Parent = p
+    return s
+end
+
+local function tw(obj, t, props)
+    TweenService:Create(obj, TweenInfo.new(t, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), props):Play()
+end
+
+local function lbl(parent, props)
+    local l = Instance.new("TextLabel")
+    l.BackgroundTransparency = 1
+    l.Font     = props.font    or Enum.Font.Gotham
+    l.Text     = props.text    or ""
+    l.TextSize = props.size    or 12
+    l.TextColor3 = props.color or T.textPri
+    l.TextXAlignment = props.align or Enum.TextXAlignment.Left
+    l.TextYAlignment = Enum.TextYAlignment.Center
+    l.TextWrapped = true
+    l.Size     = props.sz      or UDim2.new(1,0,1,0)
+    l.Position = props.pos     or UDim2.new(0,0,0,0)
+    l.ZIndex   = props.z       or 1
+    l.Parent   = parent
+    return l
+end
+
+local function keyName(k)
+    if k == nil then return "—" end
+    local s = tostring(k)
+    return s:match("%.(.+)$") or s
+end
+
+-- ============================================================
+-- KEYBIND REGISTRY
+-- ============================================================
+local _binds = {}
+
+UserInputService.InputBegan:Connect(function(inp, gp)
+    if gp or inp.UserInputType ~= Enum.UserInputType.Keyboard then return end
+    for _, b in ipairs(_binds) do
+        if b.key and inp.KeyCode == b.key then pcall(b.fn) end
+    end
+end)
+
+-- ============================================================
+-- ORIGINAL INSTANCES  (do not touch)
+-- ============================================================
+local Converted = {
+    ["_godlib"]                   = Instance.new("ScreenGui");
+    ["_god lib"]                  = Instance.new("Frame");
+    ["_UICorner"]                 = Instance.new("UICorner");
+    ["_title"]                    = Instance.new("TextLabel");
+    ["_UICorner1"]                = Instance.new("UICorner");
+    ["_UIPadding"]                = Instance.new("UIPadding");
+    ["_tabsframe"]                = Instance.new("ScrollingFrame");
+    ["_UIPadding1"]               = Instance.new("UIPadding");
+    ["_UIListLayout"]             = Instance.new("UIListLayout");
+    ["_UICorner2"]                = Instance.new("UICorner");
+    ["_dragbutton"]               = Instance.new("Frame");
+    ["_UICorner3"]                = Instance.new("UICorner");
+    ["_X"]                        = Instance.new("TextButton");
+    ["_-"]                        = Instance.new("TextButton");
+    ["_UIPadding2"]               = Instance.new("UIPadding");
+    ["_areyousure"]               = Instance.new("Frame");
+    ["_UICorner4"]                = Instance.new("UICorner");
+    ["_TextLabel"]                = Instance.new("TextLabel");
+    ["_UICorner5"]                = Instance.new("UICorner");
+    ["_yes"]                      = Instance.new("TextButton");
+    ["_UICorner6"]                = Instance.new("UICorner");
+    ["_no"]                       = Instance.new("TextButton");
+    ["_UICorner7"]                = Instance.new("UICorner");
+    ["_UIAspectRatioConstraint"]  = Instance.new("UIAspectRatioConstraint");
+    ["_UIAspectRatioConstraint1"] = Instance.new("UIAspectRatioConstraint");
+    ["_frame"]                    = Instance.new("ScrollingFrame");
+    ["_UIPadding3"]               = Instance.new("UIPadding");
+    ["_UIListLayout1"]            = Instance.new("UIListLayout");
+    ["_UICorner8"]                = Instance.new("UICorner");
+    ["_reopen"]                   = Instance.new("TextButton");
+    ["_UICorner9"]                = Instance.new("UICorner");
+    ["_UIAspectRatioConstraint2"] = Instance.new("UIAspectRatioConstraint");
+}
+
+-- ============================================================
+-- ORIGINAL PROPERTIES  (do not touch)
+-- ============================================================
+Converted["_godlib"].IgnoreGuiInset = true
+Converted["_godlib"].ScreenInsets = Enum.ScreenInsets.DeviceSafeInsets
+Converted["_godlib"].ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+Converted["_godlib"].Name = "godlib"
+Converted["_godlib"].Parent = game:GetService("CoreGui")
+
+Converted["_god lib"].AnchorPoint = Vector2.new(0.5, 0.5)
+Converted["_god lib"].BackgroundColor3 = Color3.fromRGB(43,43,43)
+Converted["_god lib"].BorderColor3 = Color3.fromRGB(0,0,0)
+Converted["_god lib"].BorderSizePixel = 0
+Converted["_god lib"].Position = UDim2.new(0,603,0,341)
+Converted["_god lib"].Size = UDim2.new(0,279,0,227)
+Converted["_god lib"].Name = "god lib"
+Converted["_god lib"].Parent = Converted["_godlib"]
+
+Converted["_UICorner"].Parent = Converted["_god lib"]
+
+Converted["_title"].Font = Enum.Font.FredokaOne
+Converted["_title"].Text = "god lib"
+Converted["_title"].TextColor3 = Color3.fromRGB(255,255,255)
+Converted["_title"].TextDirection = Enum.TextDirection.LeftToRight
+Converted["_title"].TextSize = 23
+Converted["_title"].TextWrapped = true
+Converted["_title"].TextXAlignment = Enum.TextXAlignment.Left
+Converted["_title"].BackgroundColor3 = Color3.fromRGB(47,47,47)
+Converted["_title"].BorderColor3 = Color3.fromRGB(0,0,0)
+Converted["_title"].BorderSizePixel = 0
+Converted["_title"].Size = UDim2.new(0,279,0,23)
+Converted["_title"].Name = "title"
+Converted["_title"].Parent = Converted["_god lib"]
+
+Converted["_UICorner1"].CornerRadius = UDim.new(0,5)
+Converted["_UICorner1"].Parent = Converted["_title"]
+
+Converted["_UIPadding"].PaddingLeft = UDim.new(0,7)
+Converted["_UIPadding"].Parent = Converted["_title"]
+
+Converted["_tabsframe"].ScrollBarImageColor3 = Color3.fromRGB(0,0,0)
+Converted["_tabsframe"].ScrollBarThickness = 0
+Converted["_tabsframe"].Active = true
+Converted["_tabsframe"].BackgroundColor3 = Color3.fromRGB(31,31,31)
+Converted["_tabsframe"].BorderColor3 = Color3.fromRGB(0,0,0)
+Converted["_tabsframe"].BorderSizePixel = 0
+Converted["_tabsframe"].Position = UDim2.new(0,0,0.101321585,0)
+Converted["_tabsframe"].Size = UDim2.new(0,44,0,204)
+Converted["_tabsframe"].Name = "tabsframe"
+Converted["_tabsframe"].Parent = Converted["_god lib"]
+
+Converted["_UIPadding1"].PaddingBottom = UDim.new(1,0)
+Converted["_UIPadding1"].Parent = Converted["_tabsframe"]
+
+Converted["_UIListLayout"].SortOrder = Enum.SortOrder.LayoutOrder
+Converted["_UIListLayout"].Padding = UDim.new(0,2)
+Converted["_UIListLayout"].Parent = Converted["_tabsframe"]
+
+Converted["_UICorner2"].Parent = Converted["_tabsframe"]
+
+Converted["_dragbutton"].BackgroundColor3 = Color3.fromRGB(255,255,255)
+Converted["_dragbutton"].BackgroundTransparency = 0.5
+Converted["_dragbutton"].BorderColor3 = Color3.fromRGB(0,0,0)
+Converted["_dragbutton"].BorderSizePixel = 0
+Converted["_dragbutton"].Position = UDim2.new(0,89,0,234)
+Converted["_dragbutton"].Size = UDim2.new(0,100,0,5)
+Converted["_dragbutton"].Name = "dragbutton"
+Converted["_dragbutton"].Parent = Converted["_god lib"]
+
+Converted["_UICorner3"].Parent = Converted["_dragbutton"]
+
+Converted["_X"].Font = Enum.Font.SourceSansBold
+Converted["_X"].RichText = true
+Converted["_X"].Text = "X"
+Converted["_X"].TextColor3 = Color3.fromRGB(255,255,255)
+Converted["_X"].TextSize = 25
+Converted["_X"].AnchorPoint = Vector2.new(0.5,0.5)
+Converted["_X"].BackgroundColor3 = Color3.fromRGB(255,255,255)
+Converted["_X"].BackgroundTransparency = 1
+Converted["_X"].BorderColor3 = Color3.fromRGB(0,0,0)
+Converted["_X"].BorderSizePixel = 0
+Converted["_X"].Position = UDim2.new(0.964157701,0,0.0462555066,0)
+Converted["_X"].Size = UDim2.new(0,20,0,25)
+Converted["_X"].Name = "X"
+Converted["_X"].Parent = Converted["_god lib"]
+
+Converted["_-"].Font = Enum.Font.SourceSansBold
+Converted["_-"].RichText = true
+Converted["_-"].Text = "-"
+Converted["_-"].TextColor3 = Color3.fromRGB(255,255,255)
+Converted["_-"].TextSize = 25
+Converted["_-"].AnchorPoint = Vector2.new(0.5,0.5)
+Converted["_-"].BackgroundColor3 = Color3.fromRGB(255,255,255)
+Converted["_-"].BackgroundTransparency = 1
+Converted["_-"].BorderColor3 = Color3.fromRGB(0,0,0)
+Converted["_-"].BorderSizePixel = 0
+Converted["_-"].Position = UDim2.new(0.892473102,0,0.0462555066,0)
+Converted["_-"].Size = UDim2.new(0,20,0,25)
+Converted["_-"].Name = "-"
+Converted["_-"].Parent = Converted["_god lib"]
+
+Converted["_UIPadding2"].PaddingTop = UDim.new(0,-4)
+Converted["_UIPadding2"].Parent = Converted["_-"]
+
+Converted["_areyousure"].BackgroundColor3 = Color3.fromRGB(43,43,43)
+Converted["_areyousure"].BorderColor3 = Color3.fromRGB(0,0,0)
+Converted["_areyousure"].BorderSizePixel = 0
+Converted["_areyousure"].Position = UDim2.new(-0.00358444848,0,0,0)
+Converted["_areyousure"].Size = UDim2.new(0,279,0,227)
+Converted["_areyousure"].Visible = false
+Converted["_areyousure"].ZIndex = 123123123
+Converted["_areyousure"].Name = "areyousure"
+Converted["_areyousure"].Parent = Converted["_god lib"]
+
+Converted["_UICorner4"].Parent = Converted["_areyousure"]
+
+Converted["_TextLabel"].Font = Enum.Font.FredokaOne
+Converted["_TextLabel"].Text = "Are you sure you want to unload?"
+Converted["_TextLabel"].TextColor3 = Color3.fromRGB(255,255,255)
+Converted["_TextLabel"].TextSize = 20
+Converted["_TextLabel"].BackgroundColor3 = Color3.fromRGB(47,47,47)
+Converted["_TextLabel"].BorderColor3 = Color3.fromRGB(0,0,0)
+Converted["_TextLabel"].BorderSizePixel = 0
+Converted["_TextLabel"].Size = UDim2.new(0,279,0,25)
+Converted["_TextLabel"].Parent = Converted["_areyousure"]
+
+Converted["_UICorner5"].CornerRadius = UDim.new(0,5)
+Converted["_UICorner5"].Parent = Converted["_TextLabel"]
+
+Converted["_yes"].Font = Enum.Font.Unknown
+Converted["_yes"].Text = "Yes"
+Converted["_yes"].TextColor3 = Color3.fromRGB(255,255,255)
+Converted["_yes"].TextSize = 45
+Converted["_yes"].BackgroundColor3 = Color3.fromRGB(31,31,31)
+Converted["_yes"].BorderColor3 = Color3.fromRGB(0,0,0)
+Converted["_yes"].BorderSizePixel = 0
+Converted["_yes"].Position = UDim2.new(0.0430107526,0,0.387665212,0)
+Converted["_yes"].Size = UDim2.new(0,122,0,50)
+Converted["_yes"].Name = "yes"
+Converted["_yes"].Parent = Converted["_areyousure"]
+
+Converted["_UICorner6"].Parent = Converted["_yes"]
+
+Converted["_no"].Font = Enum.Font.Unknown
+Converted["_no"].Text = "no"
+Converted["_no"].TextColor3 = Color3.fromRGB(255,255,255)
+Converted["_no"].TextSize = 45
+Converted["_no"].BackgroundColor3 = Color3.fromRGB(31,31,31)
+Converted["_no"].BorderColor3 = Color3.fromRGB(0,0,0)
+Converted["_no"].BorderSizePixel = 0
+Converted["_no"].Position = UDim2.new(0.519713283,0,0.387665212,0)
+Converted["_no"].Size = UDim2.new(0,122,0,50)
+Converted["_no"].Name = "no"
+Converted["_no"].Parent = Converted["_areyousure"]
+
+Converted["_UICorner7"].Parent = Converted["_no"]
+
+Converted["_UIAspectRatioConstraint"].AspectRatio = 1.2290748357772827
+Converted["_UIAspectRatioConstraint"].Parent = Converted["_areyousure"]
+
+Converted["_UIAspectRatioConstraint1"].AspectRatio = 1.2290748357772827
+Converted["_UIAspectRatioConstraint1"].Parent = Converted["_god lib"]
+
+-- ── Content pane (refined appearance, same position/size) ──
+Converted["_frame"].ScrollBarImageColor3 = T.accent
+Converted["_frame"].ScrollBarThickness = 2
+Converted["_frame"].Active = true
+Converted["_frame"].BackgroundColor3 = T.s1
+Converted["_frame"].BorderColor3 = Color3.fromRGB(0,0,0)
+Converted["_frame"].BorderSizePixel = 0
+Converted["_frame"].ClipsDescendants = true
+Converted["_frame"].Position = UDim2.new(0.172043025,0,0.105726875,0)
+Converted["_frame"].Size = UDim2.new(0,228,0,201)
+Converted["_frame"].Visible = true
+Converted["_frame"].Name = "frame"
+Converted["_frame"].Parent = Converted["_god lib"]
+
+Converted["_UIPadding3"].PaddingBottom = UDim.new(0,6)
+Converted["_UIPadding3"].PaddingTop    = UDim.new(0,4)
+Converted["_UIPadding3"].PaddingLeft   = UDim.new(0,4)
+Converted["_UIPadding3"].PaddingRight  = UDim.new(0,4)
+Converted["_UIPadding3"].Parent = Converted["_frame"]
+
+Converted["_UIListLayout1"].Parent = nil
+Converted["_UIListLayout1"]:Destroy()
+
+Converted["_UICorner8"].Parent = Converted["_frame"]
+
+Converted["_reopen"].Font = Enum.Font.FredokaOne
+Converted["_reopen"].Text = "reopen ui"
+Converted["_reopen"].TextColor3 = Color3.fromRGB(255,255,255)
+Converted["_reopen"].TextSize = 17
+Converted["_reopen"].BackgroundColor3 = Color3.fromRGB(43,43,43)
+Converted["_reopen"].BorderColor3 = Color3.fromRGB(0,0,0)
+Converted["_reopen"].BorderSizePixel = 0
+Converted["_reopen"].Position = UDim2.new(0.46071133,0,0.0219941344,0)
+Converted["_reopen"].Size = UDim2.new(0,92,0,23)
+Converted["_reopen"].Visible = false
+Converted["_reopen"].Name = "reopen"
+Converted["_reopen"].Parent = Converted["_godlib"]
+
+Converted["_UICorner9"].Parent = Converted["_reopen"]
+
+Converted["_UIAspectRatioConstraint2"].AspectRatio = 1.7727272510528564
+Converted["_UIAspectRatioConstraint2"].Parent = Converted["_godlib"]
+
+-- Also refine the window frame and tabsframe colors
+Converted["_god lib"].BackgroundColor3 = T.s1
+Converted["_tabsframe"].BackgroundColor3 = T.s0
+Converted["_title"].BackgroundColor3 = T.s0
+Converted["_title"].TextSize = 21
+
+-- ============================================================
+-- ORIGINAL FAKE LOCAL SCRIPTS  (do not touch)
+-- ============================================================
+local fake_module_scripts = {}
+
+local function SURMKD_fake_script()
+    local script = Instance.new("LocalScript")
+    script.Parent = Converted["_godlib"]
+    local UIS2 = game:GetService("UserInputService")
+    local MF   = script.Parent:WaitForChild("god lib")
+    local TB1  = MF:WaitForChild("title")
+    local TB2  = MF:WaitForChild("dragbutton")
+    local TB3  = MF.Parent:WaitForChild("reopen")
+    local dragging, dragInput, dragStart, startPos = false, nil, nil, nil
+    local function update(i)
+        local d = Vector2.new(i.Position.X,i.Position.Y) - dragStart
+        MF.Position = UDim2.new(startPos.X.Scale,startPos.X.Offset+d.X,startPos.Y.Scale,startPos.Y.Offset+d.Y)
+    end
+    local function btf(gui)
+        local mx = 0
+        for _,v in ipairs(gui.Parent:GetChildren()) do if v:IsA("GuiObject") and v.ZIndex>mx then mx=v.ZIndex end end
+        if gui.ZIndex<=mx then
+            local diff=(mx+1)-gui.ZIndex gui.ZIndex=mx+1
+            for _,c in ipairs(gui:GetDescendants()) do if c:IsA("GuiObject") then c.ZIndex=c.ZIndex+diff end end
+        end
+    end
+    local function hb(i)
+        if i.UserInputType==Enum.UserInputType.MouseButton1 or i.UserInputType==Enum.UserInputType.Touch then
+            dragging=true dragStart=Vector2.new(i.Position.X,i.Position.Y) startPos=MF.Position btf(MF)
+            i.Changed:Connect(function() if i.UserInputState==Enum.UserInputState.End then dragging=false end end)
+        end
+    end
+    local function hc(i) if i.UserInputType==Enum.UserInputType.MouseMovement or i.UserInputType==Enum.UserInputType.Touch then dragInput=i end end
+    TB1.InputBegan:Connect(hb) TB1.InputChanged:Connect(hc)
+    TB2.InputBegan:Connect(hb) TB2.InputChanged:Connect(hc)
+    TB3.InputBegan:Connect(hb) TB3.InputChanged:Connect(hc)
+    UIS2.InputChanged:Connect(function(i) if i==dragInput and dragging then update(i) end end)
+    UIS2.InputEnded:Connect(function(i)
+        if i.UserInputType==Enum.UserInputType.MouseButton1 or i.UserInputType==Enum.UserInputType.Touch then dragging=false dragInput=nil end
+    end)
+end
+local function GGNTSHO_fake_script()
+    local s=Instance.new("LocalScript") s.Parent=Converted["_X"]
+    s.Parent.MouseButton1Click:Connect(function() s.Parent.Parent:WaitForChild("areyousure").Visible=true end)
+end
+local function IKUPSQ_fake_script()
+    local s=Instance.new("LocalScript") s.Parent=Converted["_-"]
+    local frame=s.Parent.Parent local reopen=frame.Parent:WaitForChild("reopen") reopen.Visible=false
+    s.Parent.MouseButton1Click:Connect(function() frame.Visible=false reopen.Visible=true end)
+    reopen.MouseButton1Click:Connect(function() frame.Visible=true reopen.Visible=false end)
+end
+local function IBVDRM_fake_script()
+    local s=Instance.new("LocalScript") s.Parent=Converted["_yes"]
+    s.Parent.MouseButton1Click:Connect(function()
+        local g=s.Parent:FindFirstAncestorWhichIsA("ScreenGui") if g then g.Enabled=false g:Destroy() end
+    end)
+end
+local function BLTN_fake_script()
+    local s=Instance.new("LocalScript") s.Parent=Converted["_no"]
+    s.Parent.MouseButton1Click:Connect(function() s.Parent.Parent.Visible=false end)
+end
+
+coroutine.wrap(SURMKD_fake_script)()
+coroutine.wrap(GGNTSHO_fake_script)()
+coroutine.wrap(IKUPSQ_fake_script)()
+coroutine.wrap(IBVDRM_fake_script)()
+coroutine.wrap(BLTN_fake_script)()
+
+-- ============================================================
+-- COMPONENT SIZES  (tuned for 228×201 content pane)
+-- ============================================================
+--  Section       16px  — just a thin labelled divider
+--  Label         16px  — single line info
+--  Toggle        26px  — text + slim pill
+--  Slider        40px  — label+value row + slim track
+--  Button        26px  — full-width flat button
+--  Dropdown      26px  collapsed, expands
+--  Textbox       42px  — label + input row
+--  ColorPicker   26px  collapsed, expands to 120px
+--  Keybind       26px  — text + key badge
+--  Gap between rows: 3px
+-- ============================================================
+
+local ROW_GAP = 3
+
+-- ============================================================
+-- TAB OBJECT
+-- ============================================================
+local Tab = {}
+Tab.__index = Tab
+
+-- ── AddSection ──────────────────────────────────────────────
+function Tab:AddSection(opts)
+    opts = opts or {}
+    local row = Instance.new("Frame")
+    row.BackgroundTransparency = 1
+    row.Size = UDim2.new(1,0,0,18)
+    row.Parent = self._cf
+
+    -- Thin line left
+    local lineL = Instance.new("Frame")
+    lineL.BackgroundColor3 = T.border
+    lineL.BorderSizePixel  = 0
+    lineL.AnchorPoint      = Vector2.new(0,0.5)
+    lineL.Position         = UDim2.new(0,0,0.5,0)
+    lineL.Size             = UDim2.new(0,8,0,1)
+    lineL.Parent = row
+
+    -- Label
+    local txt = Instance.new("TextLabel")
+    txt.BackgroundTransparency = 1
+    txt.Font     = Enum.Font.GothamBold
+    txt.Text     = string.upper(opts.text or "section")
+    txt.TextSize = 9
+    txt.TextColor3 = T.textMut
+    txt.TextXAlignment = Enum.TextXAlignment.Left
+    txt.AnchorPoint = Vector2.new(0,0.5)
+    txt.Position    = UDim2.new(0,14,0.5,0)
+    txt.Size        = UDim2.new(1,-14,1,0)
+    txt.Parent = row
+
+    -- Thin line right (after text — we cheat with a right-anchored frame)
+    local lineR = Instance.new("Frame")
+    lineR.BackgroundColor3 = T.border
+    lineR.BorderSizePixel  = 0
+    lineR.AnchorPoint      = Vector2.new(1,0.5)
+    lineR.Position         = UDim2.new(1,0,0.5,0)
+    lineR.Size             = UDim2.new(0,0,0,1)   -- width set dynamically below
+    lineR.Parent = row
+
+    -- We can't measure text easily in Lua before rendering,
+    -- so just make it a trailing line of fixed width to keep it clean.
+    lineR.Size = UDim2.new(0,20,0,1)
+end
+
+-- ── AddLabel ────────────────────────────────────────────────
+function Tab:AddLabel(opts)
+    opts = opts or {}
+    local row = Instance.new("Frame")
+    row.BackgroundTransparency = 1
+    row.Size = UDim2.new(1,0,0,16)
+    row.Parent = self._cf
+
+    local t = lbl(row, {
+        text  = opts.text or "",
+        size  = 11,
+        color = T.textSec,
+    })
+
+    return { SetText = function(_,v) t.Text=v end, GetText = function(_) return t.Text end }
+end
+
+-- ── AddToggle ───────────────────────────────────────────────
+function Tab:AddToggle(opts)
+    opts = opts or {}
+    local cb    = opts.callback or function() end
+    local state = opts.default ~= nil and opts.default or false
+
+    local row = Instance.new("Frame")
+    row.BackgroundColor3 = T.s2
+    row.BorderSizePixel  = 0
+    row.Size = UDim2.new(1,0,0,26)
+    crn(row,4) pad(row,0,0,8,8)
+    row.Parent = self._cf
+
+    lbl(row, { text=opts.text or "Toggle", size=12, color=T.textPri,
+               sz=UDim2.new(1,-46,1,0) })
+
+    -- Pill  (28×14)
+    local pill = Instance.new("Frame")
+    pill.AnchorPoint    = Vector2.new(1,0.5)
+    pill.Position       = UDim2.new(1,0,0.5,0)
+    pill.Size           = UDim2.new(0,28,0,14)
+    pill.BorderSizePixel= 0
+    crn(pill,7)
+    pill.Parent = row
+
+    local knob = Instance.new("Frame")
+    knob.AnchorPoint    = Vector2.new(0,0.5)
+    knob.Size           = UDim2.new(0,10,0,10)
+    knob.BackgroundColor3 = Color3.fromRGB(255,255,255)
+    knob.BorderSizePixel= 0
+    crn(knob,5)
+    knob.Parent = pill
+
+    local btn = Instance.new("TextButton")
+    btn.BackgroundTransparency=1 btn.Size=UDim2.new(1,0,1,0)
+    btn.Text="" btn.ZIndex=5 btn.Parent=row
+
+    local function set(v, fire)
+        state = v
+        tw(pill,  0.16, {BackgroundColor3 = v and T.accent or T.s0})
+        tw(knob, 0.16, {Position = v and UDim2.new(0,16,0.5,0) or UDim2.new(0,2,0.5,0)})
+        if fire then cb(v) end
+    end
+    set(state, false)
+
+    btn.MouseButton1Click:Connect(function() set(not state, true) end)
+    row.MouseEnter:Connect(function() tw(row,0.1,{BackgroundColor3=T.s3}) end)
+    row.MouseLeave:Connect(function() tw(row,0.1,{BackgroundColor3=T.s2}) end)
+
+    return {
+        SetState = function(_,v) set(v,true) end,
+        GetState = function(_) return state end,
+        Toggle   = function(_) set(not state,true) end,
+    }
+end
+
+-- ── AddSlider ───────────────────────────────────────────────
+function Tab:AddSlider(opts)
+    opts = opts or {}
+    local cb       = opts.callback or function() end
+    local mn       = opts.min or 0
+    local mx       = opts.max or 100
+    local suffix   = opts.suffix or ""
+    local decimals = opts.decimals or 0
+    local val      = math.clamp(opts.value or opts.default or mn, mn, mx)
+
+    local row = Instance.new("Frame")
+    row.BackgroundColor3 = T.s2
+    row.BorderSizePixel  = 0
+    row.Size = UDim2.new(1,0,0,40)
+    crn(row,4) pad(row,6,6,8,8)
+    row.Parent = self._cf
+
+    -- Top row: name left, value right
+    local topR = Instance.new("Frame")
+    topR.BackgroundTransparency=1
+    topR.Size=UDim2.new(1,0,0,14)
+    topR.Parent=row
+
+    lbl(topR, { text=opts.text or "Slider", size=11, color=T.textPri, sz=UDim2.new(0.6,0,1,0) })
+
+    local valL = lbl(topR, {
+        size=11, color=T.accent, align=Enum.TextXAlignment.Right,
+        sz=UDim2.new(0.4,0,1,0), pos=UDim2.new(0.6,0,0,0)
+    })
+
+    -- Track
+    local track = Instance.new("Frame")
+    track.BackgroundColor3 = T.s0
+    track.BorderSizePixel  = 0
+    track.Size     = UDim2.new(1,0,0,5)
+    track.Position = UDim2.new(0,0,0,20)
+    crn(track,3)
+    track.Parent = row
+
+    local fill = Instance.new("Frame")
+    fill.BackgroundColor3 = T.accent
+    fill.BorderSizePixel  = 0
+    fill.Size = UDim2.new(0,0,1,0)
+    crn(fill,3)
+    fill.Parent = track
+
+    local knob = Instance.new("Frame")
+    knob.AnchorPoint      = Vector2.new(0.5,0.5)
+    knob.Size             = UDim2.new(0,9,0,9)
+    knob.BackgroundColor3 = Color3.fromRGB(255,255,255)
+    knob.BorderSizePixel  = 0
+    knob.ZIndex           = 3
+    crn(knob,5)
+    knob.Parent = track
+
+    local function fmt(v)
+        if decimals>0 then return string.format("%."..decimals.."f",v)..suffix end
+        return tostring(math.round(v))..suffix
+    end
+    local function setV(v, fire)
+        v = math.clamp(decimals>0 and v or math.round(v), mn, mx)
+        val = v
+        local pct = (v-mn)/(mx-mn)
+        fill.Size = UDim2.new(pct,0,1,0)
+        knob.Position = UDim2.new(pct,0,0.5,0)
+        valL.Text = fmt(v)
+        if fire then cb(v) end
+    end
+    setV(val, false)
+
+    local drag = false
+    local function comp(x) return mn+math.clamp((x-track.AbsolutePosition.X)/track.AbsoluteSize.X,0,1)*(mx-mn) end
+
+    track.InputBegan:Connect(function(i)
+        if i.UserInputType==Enum.UserInputType.MouseButton1 or i.UserInputType==Enum.UserInputType.Touch then
+            drag=true setV(comp(i.Position.X),true)
+        end
+    end)
+    UserInputService.InputChanged:Connect(function(i)
+        if drag and (i.UserInputType==Enum.UserInputType.MouseMovement or i.UserInputType==Enum.UserInputType.Touch) then
+            setV(comp(i.Position.X),true)
+        end
+    end)
+    UserInputService.InputEnded:Connect(function(i)
+        if i.UserInputType==Enum.UserInputType.MouseButton1 or i.UserInputType==Enum.UserInputType.Touch then drag=false end
+    end)
+
+    row.MouseEnter:Connect(function() tw(row,0.1,{BackgroundColor3=T.s3}) end)
+    row.MouseLeave:Connect(function() tw(row,0.1,{BackgroundColor3=T.s2}) end)
+
+    return { SetValue=function(_,v) setV(v,true) end, GetValue=function(_) return val end }
+end
+
+-- ── AddButton ───────────────────────────────────────────────
+function Tab:AddButton(opts)
+    opts = opts or {}
+    local cb = opts.callback or function() end
+
+    local btn = Instance.new("TextButton")
+    btn.Font    = Enum.Font.GothamSemibold
+    btn.Text    = opts.text or "Button"
+    btn.TextSize = 12
+    btn.TextColor3 = T.textPri
+    btn.BackgroundColor3 = T.s2
+    btn.BorderSizePixel  = 0
+    btn.Size    = UDim2.new(1,0,0,26)
+    btn.AutoButtonColor = false
+    crn(btn,4)
+    btn.Parent = self._cf
+
+    -- Subtle left accent stripe
+    local stripe = Instance.new("Frame")
+    stripe.BackgroundColor3 = T.accent
+    stripe.BorderSizePixel  = 0
+    stripe.Size     = UDim2.new(0,3,0.55,0)
+    stripe.Position = UDim2.new(0,0,0.225,0)
+    crn(stripe,2)
+    stripe.Parent = btn
+
+    btn.MouseButton1Click:Connect(function()
+        tw(btn,0.06,{BackgroundColor3=T.accentDim})
+        task.delay(0.14,function() tw(btn,0.12,{BackgroundColor3=T.s2}) end)
+        cb()
+    end)
+    btn.MouseEnter:Connect(function() tw(btn,0.1,{BackgroundColor3=T.s3}) end)
+    btn.MouseLeave:Connect(function() tw(btn,0.1,{BackgroundColor3=T.s2}) end)
+
+    return { SetText=function(_,t) btn.Text=t end }
+end
+
+-- ── AddDropdown ─────────────────────────────────────────────
+function Tab:AddDropdown(opts)
+    opts = opts or {}
+    local cb       = opts.callback or function() end
+    local options  = opts.options or {}
+    local selected = opts.default or options[1] or "Select…"
+    local isOpen   = false
+    local CH, OH   = 26, 22
+
+    local wrap = Instance.new("Frame")
+    wrap.BackgroundTransparency=1
+    wrap.Size=UDim2.new(1,0,0,CH)
+    wrap.ClipsDescendants=false
+    wrap.ZIndex=5
+    wrap.Parent=self._cf
+
+    local header = Instance.new("Frame")
+    header.BackgroundColor3=T.s2 header.BorderSizePixel=0
+    header.Size=UDim2.new(1,0,0,CH) crn(header,4) pad(header,0,0,8,6)
+    header.ZIndex=6 header.Parent=wrap
+
+    lbl(header,{text=opts.text or "Dropdown",size=12,color=T.textPri,sz=UDim2.new(0.55,0,1,0),z=6})
+
+    local selL = lbl(header,{
+        size=11, color=T.accent, align=Enum.TextXAlignment.Right,
+        sz=UDim2.new(0.45,0,1,0), pos=UDim2.new(0.55,0,0,0), z=6
+    })
+    selL.Text = tostring(selected).." ▾"
+
+    local drop = Instance.new("Frame")
+    drop.BackgroundColor3=T.s0 drop.BorderSizePixel=0
+    drop.Position=UDim2.new(0,0,0,CH+1)
+    drop.Size=UDim2.new(1,0,0,0)
+    drop.ClipsDescendants=true drop.ZIndex=10
+    crn(drop,4) drop.Parent=wrap
+    stroke(drop, T.border, 1)
+    list(drop,0)
+
+    local function addOpt(optText)
+        local ob=Instance.new("TextButton")
+        ob.Font=Enum.Font.Gotham ob.Text="  "..tostring(optText)
+        ob.TextColor3=T.textSec ob.TextSize=11
+        ob.TextXAlignment=Enum.TextXAlignment.Left
+        ob.BackgroundColor3=T.s0 ob.BorderSizePixel=0
+        ob.Size=UDim2.new(1,0,0,OH) ob.ZIndex=11 ob.AutoButtonColor=false
+        ob.Parent=drop
+        ob.MouseButton1Click:Connect(function()
+            selected=optText selL.Text=tostring(selected).." ▾"
+            cb(selected) isOpen=false
+            tw(drop,0.12,{Size=UDim2.new(1,0,0,0)})
+            task.delay(0.12,function() if not isOpen then wrap.Size=UDim2.new(1,0,0,CH) end end)
+        end)
+        ob.MouseEnter:Connect(function() tw(ob,0.08,{BackgroundColor3=T.s2,TextColor3=T.textPri}) end)
+        ob.MouseLeave:Connect(function() tw(ob,0.08,{BackgroundColor3=T.s0,TextColor3=T.textSec}) end)
+    end
+    for _,o in ipairs(options) do addOpt(o) end
+
+    local click=Instance.new("TextButton")
+    click.BackgroundTransparency=1 click.Size=UDim2.new(1,0,1,0)
+    click.Text="" click.ZIndex=12 click.Parent=header
+    click.MouseButton1Click:Connect(function()
+        isOpen=not isOpen
+        local h=isOpen and (#options*OH) or 0
+        tw(drop,0.14,{Size=UDim2.new(1,0,0,h)})
+        if isOpen then wrap.Size=UDim2.new(1,0,0,CH+h+1)
+        else task.delay(0.14,function() if not isOpen then wrap.Size=UDim2.new(1,0,0,CH) end end) end
+        selL.Text=tostring(selected)..(isOpen and " ▴" or " ▾")
+    end)
+    header.MouseEnter:Connect(function() tw(header,0.1,{BackgroundColor3=T.s3}) end)
+    header.MouseLeave:Connect(function() tw(header,0.1,{BackgroundColor3=T.s2}) end)
+
+    return {
+        SetValue=function(_,v) selected=v selL.Text=tostring(v).." ▾" end,
+        GetValue=function(_) return selected end,
+        SetOptions=function(_,newOpts)
+            options=newOpts
+            for _,c in ipairs(drop:GetChildren()) do if c:IsA("TextButton") then c:Destroy() end end
+            for _,o in ipairs(newOpts) do addOpt(o) end
+        end,
+    }
+end
+
+-- ── AddTextbox ──────────────────────────────────────────────
+function Tab:AddTextbox(opts)
+    opts = opts or {}
+    local cb = opts.callback or function() end
+
+    local row = Instance.new("Frame")
+    row.BackgroundColor3=T.s2 row.BorderSizePixel=0
+    row.Size=UDim2.new(1,0,0,42)
+    crn(row,4) pad(row,5,5,8,8)
+    row.Parent=self._cf
+
+    lbl(row,{text=opts.text or "Input",size=11,color=T.textSec,sz=UDim2.new(1,0,0,13)})
+
+    local inputBg=Instance.new("Frame")
+    inputBg.BackgroundColor3=T.s0 inputBg.BorderSizePixel=0
+    inputBg.Size=UDim2.new(1,0,0,18) inputBg.Position=UDim2.new(0,0,0,16)
+    crn(inputBg,3) pad(inputBg,0,0,5,5)
+    stroke(inputBg, T.border, 1)
+    inputBg.Parent=row
+
+    local box=Instance.new("TextBox")
+    box.Font=Enum.Font.Gotham
+    box.Text=opts.default or ""
+    box.PlaceholderText=opts.placeholder or "…"
+    box.PlaceholderColor3=T.textMut
+    box.TextColor3=T.textPri box.TextSize=11
+    box.TextXAlignment=Enum.TextXAlignment.Left
+    box.BackgroundTransparency=1
+    box.Size=UDim2.new(1,0,1,0)
+    box.ClearTextOnFocus=false
+    box.Parent=inputBg
+
+    box.Focused:Connect(function() tw(inputBg,0.1,{BackgroundColor3=T.s1}) stroke(inputBg,T.accent,1) end)
+    box.FocusLost:Connect(function(enter)
+        tw(inputBg,0.1,{BackgroundColor3=T.s0}) stroke(inputBg,T.border,1)
+        local v=box.Text
+        if opts.numeric then v=tonumber(v) or 0 box.Text=tostring(v) end
+        cb(v,enter)
+    end)
+
+    return { SetText=function(_,t) box.Text=tostring(t) end, GetText=function(_) return box.Text end }
+end
+
+-- ── AddColorPicker ──────────────────────────────────────────
+function Tab:AddColorPicker(opts)
+    opts = opts or {}
+    local cb      = opts.callback or function() end
+    local current = opts.default or Color3.fromRGB(255,255,255)
+    local ch      = {r=math.round(current.R*255),g=math.round(current.G*255),b=math.round(current.B*255)}
+
+    local row=Instance.new("Frame")
+    row.BackgroundColor3=T.s2 row.BorderSizePixel=0
+    row.Size=UDim2.new(1,0,0,26)
+    crn(row,4) pad(row,0,0,8,8)
+    row.Parent=self._cf
+
+    lbl(row,{text=opts.text or "Color",size=12,color=T.textPri,sz=UDim2.new(0.7,0,1,0)})
+
+    local swatch=Instance.new("Frame")
+    swatch.AnchorPoint=Vector2.new(1,0.5) swatch.Position=UDim2.new(1,0,0.5,0)
+    swatch.Size=UDim2.new(0,16,0,16) swatch.BackgroundColor3=current swatch.BorderSizePixel=0
+    crn(swatch,3) stroke(swatch,T.border,1)
+    swatch.Parent=row
+
+    -- Expanded panel
+    local panel=Instance.new("Frame")
+    panel.BackgroundColor3=T.s1 panel.BorderSizePixel=0
+    panel.Size=UDim2.new(1,0,0,102) panel.Position=UDim2.new(0,0,1,2)
+    panel.Visible=false panel.ZIndex=20
+    crn(panel,4) pad(panel,6,6,6,6)
+    stroke(panel,T.border,1)
+    list(panel,4)
+    panel.Parent=row
+
+    local function refresh()
+        current=Color3.fromRGB(ch.r,ch.g,ch.b)
+        swatch.BackgroundColor3=current cb(current)
+    end
+
+    local colNames = {"R","G","B"}
+    local colKeys  = {"r","g","b"}
+    for i=1,3 do
+        local key=colKeys[i]
+        local slRow=Instance.new("Frame")
+        slRow.BackgroundTransparency=1 slRow.Size=UDim2.new(1,0,0,24) slRow.LayoutOrder=i slRow.ZIndex=21
+        slRow.Parent=panel
+
+        lbl(slRow,{text=colNames[i],size=10,color=T.textMut,sz=UDim2.new(0,12,1,0),z=21})
+
+        local tr=Instance.new("Frame")
+        tr.BackgroundColor3=T.s0 tr.BorderSizePixel=0
+        tr.Position=UDim2.new(0,16,0.5,-3) tr.Size=UDim2.new(1,-38,0,6) tr.ZIndex=21
+        crn(tr,3) tr.Parent=slRow
+
+        local fi=Instance.new("Frame")
+        fi.BackgroundColor3=T.accent fi.BorderSizePixel=0
+        fi.Size=UDim2.new(ch[key]/255,0,1,0) fi.ZIndex=22 crn(fi,3) fi.Parent=tr
+
+        local kn=Instance.new("Frame")
+        kn.AnchorPoint=Vector2.new(0.5,0.5) kn.Position=UDim2.new(ch[key]/255,0,0.5,0)
+        kn.Size=UDim2.new(0,8,0,8) kn.BackgroundColor3=Color3.fromRGB(255,255,255)
+        kn.BorderSizePixel=0 kn.ZIndex=23 crn(kn,4) kn.Parent=tr
+
+        local vl=lbl(slRow,{size=10,color=T.accent,align=Enum.TextXAlignment.Right,
+            sz=UDim2.new(0,22,1,0),pos=UDim2.new(1,-22,0,0),z=21})
+        vl.Text=tostring(ch[key])
+
+        local dc=false
+        tr.InputBegan:Connect(function(inp)
+            if inp.UserInputType==Enum.UserInputType.MouseButton1 then
+                dc=true
+                local p=math.clamp((inp.Position.X-tr.AbsolutePosition.X)/tr.AbsoluteSize.X,0,1)
+                ch[key]=math.round(p*255) fi.Size=UDim2.new(p,0,1,0) kn.Position=UDim2.new(p,0,0.5,0) vl.Text=tostring(ch[key]) refresh()
+            end
+        end)
+        UserInputService.InputChanged:Connect(function(inp)
+            if dc and inp.UserInputType==Enum.UserInputType.MouseMovement then
+                local p=math.clamp((inp.Position.X-tr.AbsolutePosition.X)/tr.AbsoluteSize.X,0,1)
+                ch[key]=math.round(p*255) fi.Size=UDim2.new(p,0,1,0) kn.Position=UDim2.new(p,0,0.5,0) vl.Text=tostring(ch[key]) refresh()
+            end
+        end)
+        UserInputService.InputEnded:Connect(function(inp)
+            if inp.UserInputType==Enum.UserInputType.MouseButton1 then dc=false end
+        end)
+    end
+
+    local open=false
+    local sc=Instance.new("TextButton")
+    sc.BackgroundTransparency=1 sc.Size=UDim2.new(1,0,1,0) sc.Text="" sc.ZIndex=25 sc.Parent=swatch
+    sc.MouseButton1Click:Connect(function()
+        open=not open
+        panel.Visible=open
+        row.Size=open and UDim2.new(1,0,0,130) or UDim2.new(1,0,0,26)
+    end)
+    row.MouseEnter:Connect(function() if not open then tw(row,0.1,{BackgroundColor3=T.s3}) end end)
+    row.MouseLeave:Connect(function() if not open then tw(row,0.1,{BackgroundColor3=T.s2}) end end)
+
+    return {
+        GetColor=function(_) return current end,
+        SetColor=function(_,c)
+            current=c swatch.BackgroundColor3=c
+            ch.r=math.round(c.R*255) ch.g=math.round(c.G*255) ch.b=math.round(c.B*255)
+        end,
+    }
+end
+
+-- ── AddKeybind ──────────────────────────────────────────────
+--  opts: text, key (Enum.KeyCode|nil), callback
+--  Click the badge to rebind. Press key to set, ESC to clear.
+-- ─────────────────────────────────────────────────────────────
+function Tab:AddKeybind(opts)
+    opts = opts or {}
+    local cb         = opts.callback or function() end
+    local currentKey = opts.key
+    local id         = tostring(math.random(1e9))
+
+    local row=Instance.new("Frame")
+    row.BackgroundColor3=T.s2 row.BorderSizePixel=0
+    row.Size=UDim2.new(1,0,0,26)
+    crn(row,4) pad(row,0,0,8,8)
+    row.Parent=self._cf
+
+    lbl(row,{text=opts.text or "Keybind",size=12,color=T.textPri,sz=UDim2.new(0.55,0,1,0)})
+
+    -- Badge
+    local badge=Instance.new("TextButton")
+    badge.Font=Enum.Font.GothamSemibold
+    badge.Text=keyName(currentKey)
+    badge.TextSize=10
+    badge.TextColor3=T.accent
+    badge.BackgroundColor3=T.s0
+    badge.BorderSizePixel=0
+    badge.AnchorPoint=Vector2.new(1,0.5)
+    badge.Position=UDim2.new(1,0,0.5,0)
+    badge.Size=UDim2.new(0,54,0,16)
+    badge.AutoButtonColor=false
+    crn(badge,3)
+    stroke(badge,T.border,1)
+    badge.Parent=row
+
+    local listening=false
+
+    local function setL(v)
+        listening=v
+        if v then
+            badge.Text="…"
+            badge.TextColor3=T.danger
+            tw(badge,0.1,{BackgroundColor3=Color3.fromRGB(50,28,28)})
+        else
+            badge.Text=keyName(currentKey)
+            badge.TextColor3=T.accent
+            tw(badge,0.1,{BackgroundColor3=T.s0})
+        end
+    end
+
+    badge.MouseButton1Click:Connect(function() setL(not listening) end)
+    badge.MouseEnter:Connect(function() if not listening then tw(badge,0.08,{BackgroundColor3=T.s2}) end end)
+    badge.MouseLeave:Connect(function() if not listening then tw(badge,0.08,{BackgroundColor3=T.s0}) end end)
+
+    UserInputService.InputBegan:Connect(function(inp, gp)
+        if listening then
+            if inp.UserInputType==Enum.UserInputType.Keyboard then
+                currentKey=(inp.KeyCode==Enum.KeyCode.Escape) and nil or inp.KeyCode
+                for _,b in ipairs(_binds) do if b.id==id then b.key=currentKey break end end
+                setL(false)
+            end
+            return
+        end
+        if gp then return end
+        if inp.UserInputType==Enum.UserInputType.Keyboard and currentKey and inp.KeyCode==currentKey then
+            pcall(cb, currentKey)
+        end
+    end)
+
+    table.insert(_binds, {id=id, key=currentKey, fn=function() end})
+
+    row.MouseEnter:Connect(function() tw(row,0.1,{BackgroundColor3=T.s3}) end)
+    row.MouseLeave:Connect(function() tw(row,0.1,{BackgroundColor3=T.s2}) end)
+
+    return {
+        GetKey=function(_) return currentKey end,
+        SetKey=function(_,k)
+            currentKey=k badge.Text=keyName(k)
+            for _,b in ipairs(_binds) do if b.id==id then b.key=k break end end
+        end,
+        Unbind=function(_)
+            currentKey=nil badge.Text="—"
+            for _,b in ipairs(_binds) do if b.id==id then b.key=nil break end end
+        end,
+    }
+end
+
+-- ============================================================
+-- WINDOW OBJECT
+-- ============================================================
+local Window={}
+Window.__index=Window
+
+-- CreateTab(name, icon?, iconSource?)
+--   icon       = Lucide name e.g. "zap"
+--   iconSource = "Lucide" (default) | "Custom" (rbxassetid)
+function Window:CreateTab(name, icon, iconSource)
+    local tab = setmetatable({}, Tab)
+    tab._win  = self
+
+    -- ── Tab button (44px wide sidebar) ──
+    local btn=Instance.new("TextButton")
+    btn.BackgroundColor3=T.s0
+    btn.BorderSizePixel=0
+    btn.Size=UDim2.new(1,-4,0,40)
+    btn.Text="" btn.AutoButtonColor=false
+    crn(btn,4)
+    btn.Parent=Converted["_tabsframe"]
+    tab._btn=btn
+
+    -- Accent indicator bar (left edge, hidden when inactive)
+    local bar=Instance.new("Frame")
+    bar.BackgroundColor3=T.accent
+    bar.BorderSizePixel=0
+    bar.AnchorPoint=Vector2.new(0,0.5)
+    bar.Position=UDim2.new(0,0,0.5,0)
+    bar.Size=UDim2.new(0,2,0.5,0)
+    bar.Visible=false
+    crn(bar,1) bar.Parent=btn
+    tab._bar=bar
+
+    if icon then
+        local img=Instance.new("ImageLabel")
+        img.BackgroundTransparency=1
+        img.AnchorPoint=Vector2.new(0.5,0.5)
+        img.Position=UDim2.new(0.5,0,0.38,0)
+        img.Size=UDim2.new(0,16,0,16)
+        img.ImageColor3=T.textMut
+        img.ScaleType=Enum.ScaleType.Fit
+        img.Parent=btn
+        tab._img=img
+
+        task.spawn(function()
+            local asset=GetIcon(icon, iconSource or "Lucide")
+            if asset then ApplyIcon(img, asset)
+            else
+                img:Destroy() tab._img=nil
+                local fb=lbl(btn,{text=string.sub(name,1,3),size=9,color=T.textMut,
+                    sz=UDim2.new(1,-2,0,14),pos=UDim2.new(0,1,0,5)})
+                fb.TextXAlignment=Enum.TextXAlignment.Center
+                tab._fallback=fb
+            end
+        end)
+
+        local nl=lbl(btn,{text=string.sub(name,1,5),size=8,color=T.textMut,
+            sz=UDim2.new(1,-2,0,10),pos=UDim2.new(0,1,1,-12)})
+        nl.TextXAlignment=Enum.TextXAlignment.Center
+        tab._nl=nl
+    else
+        local tl=lbl(btn,{text=string.sub(name,1,4),size=10,color=T.textMut,
+            sz=UDim2.new(1,-4,1,-4),pos=UDim2.new(0,2,0,2)})
+        tl.TextXAlignment=Enum.TextXAlignment.Center
+        tab._tl=tl
+    end
+
+    -- ── Content frame ──
+    local cf=Instance.new("ScrollingFrame")
+    cf.BackgroundTransparency=1 cf.BorderSizePixel=0
+    cf.ScrollBarThickness=2
+    cf.ScrollBarImageColor3=T.accent
+    cf.ScrollBarImageTransparency=0.5
+    cf.Size=UDim2.new(1,0,1,0)
+    cf.Visible=#self._tabs==0
+    cf.Parent=Converted["_frame"]
+
+    local lay=list(cf, ROW_GAP)
+    pad(cf,2,4,0,0)
+    lay:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+        cf.CanvasSize=UDim2.new(0,0,0,lay.AbsoluteContentSize.Y+6)
+    end)
+    tab._cf=cf
+
+    -- ── Activate helpers ──
+    local function deactivateAll()
+        for _,t in ipairs(self._tabs) do
+            t._cf.Visible=false
+            tw(t._btn,0.14,{BackgroundColor3=T.s0})
+            t._bar.Visible=false
+            if t._img      then tw(t._img,     0.14,{ImageColor3=T.textMut}) end
+            if t._nl       then tw(t._nl,      0.14,{TextColor3=T.textMut}) end
+            if t._tl       then tw(t._tl,      0.14,{TextColor3=T.textMut}) end
+            if t._fallback then tw(t._fallback,0.14,{TextColor3=T.textMut}) end
+        end
+    end
+    local function activateThis()
+        deactivateAll()
+        cf.Visible=true
+        tw(btn,0.14,{BackgroundColor3=T.s2})
+        bar.Visible=true
+        if tab._img      then tw(tab._img,     0.14,{ImageColor3=T.textPri}) end
+        if tab._nl       then tw(tab._nl,      0.14,{TextColor3=T.textPri}) end
+        if tab._tl       then tw(tab._tl,      0.14,{TextColor3=T.textPri}) end
+        if tab._fallback then tw(tab._fallback,0.14,{TextColor3=T.textPri}) end
+        self._active=tab
+    end
+
+    btn.MouseButton1Click:Connect(activateThis)
+    btn.MouseEnter:Connect(function()
+        if self._active~=tab then tw(btn,0.1,{BackgroundColor3=T.s1}) end
+    end)
+    btn.MouseLeave:Connect(function()
+        if self._active~=tab then tw(btn,0.1,{BackgroundColor3=T.s0}) end
+    end)
+
+    if #self._tabs==0 then
+        btn.BackgroundColor3=T.s2 bar.Visible=true
+        if tab._img      then tab._img.ImageColor3=T.textPri end
+        if tab._nl       then tab._nl.TextColor3=T.textPri end
+        if tab._tl       then tab._tl.TextColor3=T.textPri end
+        self._active=tab
+    end
+
+    table.insert(self._tabs, tab)
+    task.defer(function()
+        local l=Converted["_tabsframe"]:FindFirstChildOfClass("UIListLayout")
+        if l then Converted["_tabsframe"].CanvasSize=UDim2.new(0,0,0,l.AbsoluteContentSize.Y+4) end
+    end)
+
+    return tab
+end
+
+function Window:_def()
+    if not self._defaultTab then self._defaultTab=self:CreateTab("Main") end
+    return self._defaultTab
+end
+function Window:AddSection(o)      return self:_def():AddSection(o) end
+function Window:AddLabel(o)        return self:_def():AddLabel(o) end
+function Window:AddButton(o)       return self:_def():AddButton(o) end
+function Window:AddToggle(o)       return self:_def():AddToggle(o) end
+function Window:AddSlider(o)       return self:_def():AddSlider(o) end
+function Window:AddDropdown(o)     return self:_def():AddDropdown(o) end
+function Window:AddTextbox(o)      return self:_def():AddTextbox(o) end
+function Window:AddColorPicker(o)  return self:_def():AddColorPicker(o) end
+function Window:AddKeybind(o)      return self:_def():AddKeybind(o) end
+
+-- ============================================================
+-- LIBRARY ENTRY
+-- ============================================================
+function Library:CreateWindow(title)
+    Converted["_title"].Text = title or "god lib"
+    local win=setmetatable({},Window)
+    win._tabs={}
+    win._defaultTab=nil
+    win._active=nil
+    return win
+end
+
+return Library
